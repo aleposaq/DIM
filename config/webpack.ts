@@ -17,6 +17,7 @@ import fs from 'fs';
 import svgToMiniDataURI from 'mini-svg-data-uri';
 import { resolve } from 'node:path';
 import zlib from 'zlib';
+import { aiProxyUrl } from './ai-proxy.ts';
 import csp from './content-security-policy.ts';
 import { makeFeatureFlags } from './feature-flags.ts';
 
@@ -551,7 +552,7 @@ export default (env: Env) => {
       $DIM_WEB_CLIENT_SECRET: JSON.stringify(process.env.WEB_OAUTH_CLIENT_SECRET),
       $DIM_API_KEY: JSON.stringify(process.env.DIM_API_KEY),
       // URL of the AI assistant proxy Worker, e.g. https://dim-ai-proxy.<subdomain>.workers.dev
-      $DIM_AI_PROXY_URL: JSON.stringify(process.env.DIM_AI_PROXY_URL ?? ''),
+      $DIM_AI_PROXY_URL: JSON.stringify(featureFlags.aiAssistant ? aiProxyUrl() : ''),
       $ANALYTICS_PROPERTY: JSON.stringify(analyticsProperty),
       $PUBLIC_PATH: JSON.stringify(publicPath),
 

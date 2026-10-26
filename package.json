@@ -32,7 +32,7 @@
     "build:dev": "pnpm -s bundle --env=dev",
     "i18n": "node build/i18n.cjs",
     "start": "pnpm run --reporter-hide-prefix --stream '/^(watch:i18n|devserver)$/'",
-    "devserver": "nodemon --delay 2 --watch config/webpack.ts --watch config/feature-flags.ts --watch config/content-security-policy.ts --watch pnpm-lock.yaml -e ts,js,json,lock --exec \"pnpm install --frozen-lockfile --prefer-offline && rspack serve --config ./config/webpack.ts --env=dev || pnpm touch\"",
+    "devserver": "nodemon --delay 2 --watch config/webpack.ts --watch config/feature-flags.ts --watch config/content-security-policy.ts --watch config/ai-proxy.ts --watch pnpm-lock.yaml -e ts,js,json,lock --exec \"pnpm install --frozen-lockfile --prefer-offline && rspack serve --config ./config/webpack.ts --env=dev || pnpm touch\"",
     "touch": "node -e \"require('fs').utimes('config/webpack.ts', new Date(), new Date(), () => {})\"",
     "watch:i18n": "nodemon --watch config/i18n.json --exec \"pnpm i18n\"",
     "syntax": "find dist -name \"*.js\" | xargs -n 1 node --check",

@@ -41,7 +41,7 @@ Note: on Gemini's free tier, prompts and responses may be used by Google to impr
 
 The assistant is behind the `aiAssistant` feature flag, which is on for dev builds only.
 
-1. Start DIM with the Worker URL so the Content Security Policy allows it:
+1. The Worker URL is set in `config/ai-proxy.ts` and is allowed by DIM's Content Security Policy automatically. To use a different deployment without editing that file, set `DIM_AI_PROXY_URL` before `pnpm start`:
 
    ```powershell
    $env:DIM_AI_PROXY_URL = "https://dim-ai-proxy.<subdomain>.workers.dev"
@@ -51,4 +51,4 @@ The assistant is behind the `aiAssistant` feature flag, which is on for dev buil
    `http://localhost:8787` (`wrangler dev`) is always allowed in dev builds.
 
 2. Open the assistant with the lightning-bolt button in the header or **Shift+A**.
-3. The Worker URL defaults to `DIM_AI_PROXY_URL`. You can change it under **Settings** in the panel (saved in localStorage as `dim-ai-proxy-url`), but the new URL must also be allowed by the CSP, so restart `pnpm start` with the matching `DIM_AI_PROXY_URL`.
+3. The panel's Worker URL defaults to that URL. You can change it under **Settings** in the panel (saved in localStorage as `dim-ai-proxy-url`), but the new URL must also be allowed by the CSP, so change `config/ai-proxy.ts` (or `DIM_AI_PROXY_URL`) to match and restart `pnpm start`.
