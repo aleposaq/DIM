@@ -45,6 +45,7 @@ export async function callClaude(env: Env, body: ChatRequest): Promise<ChatRespo
       cache_control: { type: 'ephemeral' },
       system: body.system,
       tools: body.tools,
+      ...(body.toolChoice === 'none' ? { tool_choice: { type: 'none' as const } } : {}),
       messages: body.messages,
     });
     return {

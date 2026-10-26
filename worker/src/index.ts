@@ -71,6 +71,7 @@ function parseChatRequest(bodyText: string): ChatRequest {
     tools: body.tools,
     messages: body.messages,
     geminiSignatures: body.geminiSignatures ?? {},
+    toolChoice: body.toolChoice === 'none' ? 'none' : undefined,
   };
 }
 

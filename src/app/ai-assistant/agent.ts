@@ -12,7 +12,7 @@ type ToolUseBlock = Anthropic.Beta.BetaToolUseBlock;
 type ToolResultBlockParam = Anthropic.Beta.BetaToolResultBlockParam;
 
 /** Max tool calls the model may make while answering one user message. */
-export const MAX_TOOL_CALLS_PER_MESSAGE = 8;
+export const MAX_TOOL_CALLS_PER_MESSAGE = 20;
 
 /** Stay under the proxy Worker's 2 MB body cap. */
 const MAX_REQUEST_BYTES = 1.9 * 1024 * 1024;
@@ -106,12 +106,17 @@ function chatUrl(proxyUrl: string) {
   return base.endsWith('/chat') ? base : `${base}/chat`;
 }
 
-async function callModel(deps: AgentDeps, conversation: Conversation): Promise<ChatResponse> {
+async function callModel(
+  deps: AgentDeps,
+  conversation: Conversation,
+  toolsOff: boolean,
+): Promise<ChatResponse> {
   const body = JSON.stringify({
     system: systemPrompt(),
     tools: toolDefinitions(),
     messages: conversation.messages,
     geminiSignatures: conversation.geminiSignatures,
+    ...(toolsOff ? { toolChoice: 'none' } : {}),
   });
   if (new TextEncoder().encode(body).length > MAX_REQUEST_BYTES) {
     throw new ProxyError(TOO_LONG_MESSAGE);
@@ -247,9 +252,11 @@ async function continueTurn(
 ): Promise<TurnResult> {
   let announcedFallback = false;
   while (true) {
+    // Out of tool calls: ask for a final answer with tools turned off
+    const final = toolCallsUsed >= MAX_TOOL_CALLS_PER_MESSAGE;
     let response: ChatResponse;
     try {
-      response = await callModel(deps, conversation);
+      response = await callModel(deps, conversation, final);
     } catch (e) {
       deps.onLine({ kind: 'error', text: errorMessage(e) });
       return { conversation };
@@ -293,8 +300,9 @@ async function continueTurn(
       return { conversation };
     }
 
-    if (toolCallsUsed >= MAX_TOOL_CALLS_PER_MESSAGE) {
-      // Answer the calls so the history stays valid, then stop.
+    if (final) {
+      // Tools were off, so this shouldn't happen. Answer the calls so the
+      // history stays valid, then stop.
       const results = calls.map((call) =>
         toolResult(call, { error: 'Tool call limit reached for this message.' }),
       );

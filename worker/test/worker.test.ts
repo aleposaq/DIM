@@ -157,6 +157,24 @@ describe('Claude', () => {
     assert.equal(call.body.thinking, undefined);
   });
 
+  it('turns tools off when asked for a final answer', async () => {
+    respond = (url) =>
+      isClaude(url) ? claudeMessage([{ type: 'text', text: 'ok' }]) : geminiReply([{ text: 'ok' }]);
+    await worker.fetch(chatRequest({ ...chatBody, toolChoice: 'none' }), makeEnv());
+    assert.deepEqual(calls[0].body.tool_choice, { type: 'none' });
+
+    calls = [];
+    await worker.fetch(
+      chatRequest({ ...chatBody, toolChoice: 'none' }),
+      makeEnv({ ANTHROPIC_API_KEY: undefined }),
+    );
+    assert.deepEqual(calls[0].body.toolConfig, { functionCallingConfig: { mode: 'NONE' } });
+
+    calls = [];
+    await worker.fetch(chatRequest(), makeEnv());
+    assert.equal(calls[0].body.tool_choice, undefined);
+  });
+
   it('passes bad requests through instead of falling back', async () => {
     respond = () =>
       Response.json(

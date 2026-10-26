@@ -126,6 +126,9 @@ export async function callGemini(
       },
     ],
     systemInstruction: { parts: [{ text: body.system }] },
+    ...(body.toolChoice === 'none'
+      ? { toolConfig: { functionCallingConfig: { mode: 'NONE' } } }
+      : {}),
   };
 
   let upstream: Response;

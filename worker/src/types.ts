@@ -21,6 +21,8 @@ export interface ChatRequest {
   messages: Anthropic.Beta.BetaMessageParam[];
   /** Gemini thought signatures for Gemini-made tool calls, by tool_use id. */
   geminiSignatures?: Record<string, string>;
+  /** 'none' asks for a text answer with no tool calls. */
+  toolChoice?: 'none';
 }
 
 export interface ChatResponse {

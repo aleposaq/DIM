@@ -170,9 +170,27 @@ describe('agent loop', () => {
     const result = await sendUserMessage(deps, emptyConversation, 'Loop forever');
 
     expect(fetchMock.mock.calls).toHaveLength(MAX_TOOL_CALLS_PER_MESSAGE + 1);
+    // The last request turns tools off to get an answer
+    expect(sentBody(MAX_TOOL_CALLS_PER_MESSAGE)).toMatchObject({ toolChoice: 'none' });
+    expect(sentBody(0)).not.toHaveProperty('toolChoice');
     expect(lines.at(-1)?.kind).toBe('error');
     // Every tool_use has a tool_result, so the next message is valid
     expect(result.conversation.messages.at(-1)!.role).toBe('user');
+  });
+
+  it('answers with what it has once out of tool calls', async () => {
+    let n = 0;
+    fetchMock.mockResponse(async (req) => {
+      const body = JSON.parse(await req.text()) as { toolChoice?: string };
+      return body.toolChoice === 'none'
+        ? reply([{ type: 'text', text: 'Here is the best build I found.' }])
+        : reply([toolUse(`toolu_${n++}`, 'list_characters')]);
+    });
+    const { deps, lines } = setup();
+    const result = await sendUserMessage(deps, emptyConversation, 'Make me a build');
+    expect(lines.at(-1)).toEqual({ kind: 'model', text: 'Here is the best build I found.' });
+    expect(lines.some((l) => l.kind === 'error')).toBe(false);
+    expect(result.conversation.messages.at(-1)!.role).toBe('assistant');
   });
 
   it('notes a Gemini fallback once and keeps its signatures', async () => {
