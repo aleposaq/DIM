@@ -20,13 +20,20 @@ For local development, copy `.dev.vars.example` to `.dev.vars`, add your key, an
 
 ## Test
 
-```powershell
-# Should return a Gemini response
-curl.exe -X POST https://dim-ai-proxy.<subdomain>.workers.dev/chat -H "Content-Type: application/json" -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"say hi\"}]}]}'
+In Windows PowerShell, use `Invoke-RestMethod` (passing JSON to `curl.exe` breaks on the quotes):
 
-# Should return 403
-curl.exe -X POST https://dim-ai-proxy.<subdomain>.workers.dev/chat -H "Origin: https://evil.example" -H "Content-Type: application/json" -d '{\"contents\":[]}'
+```powershell
+$url = "https://dim-ai-proxy.<subdomain>.workers.dev/chat"
+
+# Should return a Gemini response
+$body = '{"contents":[{"role":"user","parts":[{"text":"say hi"}]}]}'
+Invoke-RestMethod -Method Post -Uri $url -ContentType "application/json" -Body $body | ConvertTo-Json -Depth 10
+
+# Should fail with 403 "Origin not allowed"
+Invoke-RestMethod -Method Post -Uri $url -ContentType "application/json" -Body '{"contents":[]}' -Headers @{ Origin = "https://evil.example" }
 ```
+
+A new workers.dev subdomain can take 10-15 minutes before HTTPS works. Until then requests fail with a TLS handshake error.
 
 Note: on Gemini's free tier, prompts and responses may be used by Google to improve its products.
 
