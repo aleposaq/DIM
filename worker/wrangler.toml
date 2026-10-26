@@ -1,6 +1,9 @@
 name = "dim-ai-proxy"
 main = "src/index.ts"
 compatibility_date = "2026-10-01"
+# Serve at https://dim-ai-proxy.<subdomain>.workers.dev, without per-version preview URLs
+workers_dev = true
+preview_urls = false
 
 [vars]
 # Free-tier model names change often. Check https://ai.google.dev/gemini-api/docs/pricing
