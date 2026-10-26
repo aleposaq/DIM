@@ -1,52 +1,46 @@
+import type Anthropic from '@anthropic-ai/sdk';
 import { allItemsSelector } from 'app/inventory/selectors';
 import { DimThunkDispatch, RootState } from 'app/store/types';
 import { errorMessage } from 'app/utils/errors';
-import { delay } from 'app/utils/promises';
 import memoizeOne from 'memoize-one';
 import { searchCheatSheet } from './search-cheat-sheet';
 import { aiTools, aiToolsByName, runTool, summarizeTool, ToolArgs, ToolResult } from './tools';
 
+type MessageParam = Anthropic.Beta.BetaMessageParam;
+type ContentBlock = Anthropic.Beta.BetaContentBlock;
+type ToolUseBlock = Anthropic.Beta.BetaToolUseBlock;
+type ToolResultBlockParam = Anthropic.Beta.BetaToolResultBlockParam;
+
 /** Max tool calls the model may make while answering one user message. */
 export const MAX_TOOL_CALLS_PER_MESSAGE = 8;
 
-/** Stay under the proxy Worker's 200 KB body cap. */
-const MAX_REQUEST_BYTES = 180 * 1024;
+/** Stay under the proxy Worker's 2 MB body cap. */
+const MAX_REQUEST_BYTES = 1.9 * 1024 * 1024;
 
-export const RATE_LIMIT_MESSAGE = 'Free-tier rate limit hit, try again in a minute.';
+export const RATE_LIMIT_MESSAGE = 'Claude and Gemini are both rate limited, try again in a minute.';
+export const TOO_LONG_MESSAGE = 'This conversation is too long. Start a new chat.';
 
-//
-// Gemini generateContent types (just the parts we use)
-//
-
-export interface FunctionCall {
-  id?: string;
-  name: string;
-  args?: ToolArgs;
+/**
+ * The conversation, in Claude's Messages format. It's append-only: Claude
+ * rejects a history whose earlier turns were edited once it has replayed its
+ * thinking blocks, so messages are never changed or removed.
+ */
+export interface Conversation {
+  messages: MessageParam[];
+  /** Gemini thought signatures for tool calls Gemini made, by tool_use id. */
+  geminiSignatures: Record<string, string>;
 }
 
-export interface GeminiPart {
-  text?: string;
-  /** Thought summaries, which we don't show. */
-  thought?: boolean;
-  /** Opaque, must be sent back exactly as received. */
-  thoughtSignature?: string;
-  functionCall?: FunctionCall;
-  functionResponse?: { id?: string; name: string; response: ToolResult };
-}
+export const emptyConversation: Conversation = { messages: [], geminiSignatures: {} };
 
-export interface GeminiContent {
-  role: 'user' | 'model';
-  parts: GeminiPart[];
+/** What the proxy Worker returns from POST /chat (see worker/src/types.ts). */
+interface ChatResponse {
+  provider: 'claude' | 'gemini';
+  content: ContentBlock[];
+  stop_reason: Anthropic.Beta.BetaStopReason | null;
+  fallbackReason?: string;
+  geminiSignatures?: Record<string, string>;
 }
-
-interface GenerateContentResponse {
-  candidates?: { content?: GeminiContent; finishReason?: string }[];
-  promptFeedback?: { blockReason?: string };
-}
-
-//
-// Agent state passed back and forth with the UI
-//
 
 /** A line to show in the chat transcript. */
 export interface ChatLine {
@@ -59,139 +53,111 @@ export interface ChatLine {
  * everything needed to resume the turn afterwards.
  */
 export interface PendingAction {
-  call: FunctionCall;
+  call: ToolUseBlock;
   summary: string;
   /** Other calls from the same model response that haven't run yet. */
-  remainingCalls: FunctionCall[];
-  /** functionResponse parts collected so far for that model response. */
-  responses: GeminiPart[];
+  remainingCalls: ToolUseBlock[];
+  /** tool_result blocks collected so far for that model response. */
+  results: ToolResultBlockParam[];
   toolCallsUsed: number;
 }
 
 export interface TurnResult {
-  contents: GeminiContent[];
+  conversation: Conversation;
   pending?: PendingAction;
 }
 
 export interface AgentDeps {
   /** Base URL of the proxy Worker. */
   proxyUrl: string;
+  /** The Worker's PROXY_TOKEN. */
+  proxyToken: string;
   getState: () => RootState;
   dispatch: DimThunkDispatch;
   /** Called for each new line to show in the transcript. */
   onLine: (line: ChatLine) => void;
 }
 
-const systemInstruction = memoizeOne(() => ({
-  parts: [
-    {
-      text: [
-        "You manage a Destiny 2 player's inventory through DIM. Use tools; never invent item names or ids. Use DIM search syntax in search_items.",
-        'Item indexes come from search_items. Character ids come from list_characters. Loadout ids come from list_loadouts.',
-        'Tools that move, equip, apply or save ask the player to confirm first. If a result says cancelled, acknowledge it and do not retry.',
-        'Keep answers short. Refer to items by name, never by index.',
-        '',
-        searchCheatSheet(),
-      ].join('\n'),
-    },
-  ],
-}));
+// The system prompt and tools must stay byte-identical for the whole
+// conversation, both for Claude's thinking blocks and for prompt caching.
+const systemPrompt = memoizeOne(() =>
+  [
+    "You manage a Destiny 2 player's inventory through DIM. Use tools; never invent item names or ids. Use DIM search syntax in search_items.",
+    'Item indexes come from search_items. Character ids come from list_characters. Loadout ids come from list_loadouts.',
+    'Tools that move, equip, apply or save ask the player to confirm first. If a result says cancelled, acknowledge it and do not retry.',
+    'Keep answers short. Refer to items by name, never by index.',
+    '',
+    searchCheatSheet(),
+  ].join('\n'),
+);
 
-const toolDeclarations = memoizeOne(() => [
-  { functionDeclarations: aiTools.map((t) => t.declaration) },
-]);
+const toolDefinitions = memoizeOne((): Anthropic.Beta.BetaTool[] =>
+  aiTools.map(({ declaration }) => ({
+    name: declaration.name,
+    description: declaration.description,
+    input_schema: declaration.parameters as Anthropic.Beta.BetaTool.InputSchema,
+  })),
+);
 
-class ProxyError extends Error {
-  constructor(
-    message: string,
-    public status?: number,
-  ) {
-    super(message);
-  }
-}
+class ProxyError extends Error {}
 
 function chatUrl(proxyUrl: string) {
   const base = proxyUrl.trim().replace(/\/+$/, '');
   return base.endsWith('/chat') ? base : `${base}/chat`;
 }
 
-/**
- * Drop the oldest turns until the request fits under the Worker's size cap. A
- * turn starts at a user message with text, so we never split a function call
- * from its response.
- */
-export function trimContents(contents: GeminiContent[], maxBytes = MAX_REQUEST_BYTES) {
-  let trimmed = contents;
-  const size = (c: GeminiContent[]) => new TextEncoder().encode(JSON.stringify(c)).length;
-  while (size(trimmed) > maxBytes) {
-    const nextTurn = trimmed.findIndex(
-      (c, i) => i > 0 && c.role === 'user' && c.parts.some((p) => p.text !== undefined),
-    );
-    if (nextTurn <= 0) {
-      break;
-    }
-    trimmed = trimmed.slice(nextTurn);
-  }
-  return trimmed;
-}
-
-async function callModel(proxyUrl: string, contents: GeminiContent[]): Promise<GeminiContent> {
+async function callModel(deps: AgentDeps, conversation: Conversation): Promise<ChatResponse> {
   const body = JSON.stringify({
-    contents: trimContents(contents),
-    tools: toolDeclarations(),
-    systemInstruction: systemInstruction(),
+    system: systemPrompt(),
+    tools: toolDefinitions(),
+    messages: conversation.messages,
+    geminiSignatures: conversation.geminiSignatures,
   });
-
-  let response: Response | undefined;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      response = await fetch(chatUrl(proxyUrl), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-      });
-    } catch (e) {
-      throw new ProxyError(`Could not reach the AI proxy: ${errorMessage(e)}`);
-    }
-    // Retry a rate limit once, then give up
-    if (response.status === 429 && attempt === 0) {
-      await delay(2000);
-      continue;
-    }
-    break;
+  if (new TextEncoder().encode(body).length > MAX_REQUEST_BYTES) {
+    throw new ProxyError(TOO_LONG_MESSAGE);
   }
-  if (!response) {
-    throw new ProxyError('No response from the AI proxy');
+
+  let response: Response;
+  try {
+    response = await fetch(chatUrl(deps.proxyUrl), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${deps.proxyToken}`,
+      },
+      body,
+    });
+  } catch (e) {
+    throw new ProxyError(`Could not reach the AI proxy: ${errorMessage(e)}`);
   }
 
   if (response.status === 429) {
-    throw new ProxyError(RATE_LIMIT_MESSAGE, 429);
+    throw new ProxyError(RATE_LIMIT_MESSAGE);
+  } else if (response.status === 401) {
+    throw new ProxyError('The AI proxy rejected the access token. Check Settings.');
+  } else if (response.status === 413) {
+    throw new ProxyError(TOO_LONG_MESSAGE);
   }
-  let json: GenerateContentResponse & { error?: { message?: string } };
+  let json: ChatResponse & { error?: { message?: string } };
   try {
     json = (await response.json()) as typeof json;
   } catch {
-    throw new ProxyError(`AI proxy returned HTTP ${response.status}`, response.status);
+    throw new ProxyError(`AI proxy returned HTTP ${response.status}`);
   }
   if (!response.ok) {
-    throw new ProxyError(
-      json.error?.message ?? `AI proxy returned HTTP ${response.status}`,
-      response.status,
-    );
+    throw new ProxyError(json.error?.message ?? `AI proxy returned HTTP ${response.status}`);
   }
+  return json;
+}
 
-  const candidate = json.candidates?.[0];
-  if (!candidate?.content?.parts?.length) {
-    const reason = json.promptFeedback?.blockReason ?? candidate?.finishReason ?? 'no content';
-    throw new ProxyError(`The model didn't answer (${reason})`);
-  }
-  // Keep the content exactly as received so thought signatures survive.
-  return { ...candidate.content, role: 'model' };
+function inputArgs(call: ToolUseBlock): ToolArgs {
+  const input = call.input;
+  return input && typeof input === 'object' && !Array.isArray(input) ? (input as ToolArgs) : {};
 }
 
 /** A transcript line for a read-only tool call, e.g. "Searched: is:exotic is:void". */
-function activityLine(call: FunctionCall, state: RootState) {
-  const args = call.args ?? {};
+function activityLine(call: ToolUseBlock, state: RootState) {
+  const args = inputArgs(call);
   const str = (value: unknown) => (typeof value === 'string' ? value : '');
   switch (call.name) {
     case 'search_items':
@@ -209,29 +175,36 @@ function activityLine(call: FunctionCall, state: RootState) {
   }
 }
 
-function functionResponse(call: FunctionCall, response: ToolResult): GeminiPart {
+function toolResult(call: ToolUseBlock, result: ToolResult): ToolResultBlockParam {
   return {
-    functionResponse: { ...(call.id ? { id: call.id } : {}), name: call.name, response },
+    type: 'tool_result',
+    tool_use_id: call.id,
+    content: JSON.stringify(result),
+    ...('error' in result ? { is_error: true } : {}),
   };
 }
 
+function append(conversation: Conversation, message: MessageParam): Conversation {
+  return { ...conversation, messages: [...conversation.messages, message] };
+}
+
 /**
- * Run the function calls from one model response in order. Stops at the first
+ * Run the tool calls from one model response in order. Stops at the first
  * mutating call and returns it as a pending action.
  */
 async function runCalls(
   deps: AgentDeps,
-  calls: FunctionCall[],
-  responses: GeminiPart[],
+  calls: ToolUseBlock[],
+  results: ToolResultBlockParam[],
   toolCallsUsed: number,
-): Promise<{ responses: GeminiPart[]; toolCallsUsed: number; pending?: PendingAction }> {
+): Promise<{ results: ToolResultBlockParam[]; toolCallsUsed: number; pending?: PendingAction }> {
   for (let i = 0; i < calls.length; i++) {
     const call = calls[i];
     toolCallsUsed++;
     if (toolCallsUsed > MAX_TOOL_CALLS_PER_MESSAGE) {
-      responses = [
-        ...responses,
-        functionResponse(call, {
+      results = [
+        ...results,
+        toolResult(call, {
           error: 'Tool call limit reached for this message. Answer with what you have.',
         }),
       ];
@@ -240,104 +213,123 @@ async function runCalls(
 
     const tool = aiToolsByName[call.name];
     if (tool?.mutating) {
-      const summary = summarizeTool(call.name, call.args ?? {}, deps.getState());
+      const summary = summarizeTool(call.name, inputArgs(call), deps.getState());
       if ('error' in summary) {
         // Bad arguments: tell the model without bothering the user
-        responses = [...responses, functionResponse(call, summary)];
+        results = [...results, toolResult(call, summary)];
         continue;
       }
       return {
-        responses,
+        results,
         toolCallsUsed,
         pending: {
           call,
           summary: summary.summary,
           remainingCalls: calls.slice(i + 1),
-          responses,
+          results,
           toolCallsUsed,
         },
       };
     }
 
     deps.onLine({ kind: 'activity', text: activityLine(call, deps.getState()) });
-    const result = await runTool(call.name, call.args ?? {}, deps.getState, deps.dispatch);
-    responses = [...responses, functionResponse(call, result)];
+    const result = await runTool(call.name, inputArgs(call), deps.getState, deps.dispatch);
+    results = [...results, toolResult(call, result)];
   }
-  return { responses, toolCallsUsed };
+  return { results, toolCallsUsed };
 }
 
 /** Keep calling the model until it answers with text, needs confirmation, or hits the limit. */
 async function continueTurn(
   deps: AgentDeps,
-  contents: GeminiContent[],
+  conversation: Conversation,
   toolCallsUsed: number,
 ): Promise<TurnResult> {
+  let announcedFallback = false;
   while (true) {
-    let modelContent: GeminiContent;
+    let response: ChatResponse;
     try {
-      modelContent = await callModel(deps.proxyUrl, contents);
+      response = await callModel(deps, conversation);
     } catch (e) {
       deps.onLine({ kind: 'error', text: errorMessage(e) });
-      return { contents };
+      return { conversation };
     }
-    contents = [...contents, modelContent];
 
-    const text = modelContent.parts
-      .filter((p) => p.text && !p.thought)
-      .map((p) => p.text)
+    if (response.provider === 'gemini' && !announcedFallback) {
+      announcedFallback = true;
+      deps.onLine({
+        kind: 'activity',
+        text: `${response.fallbackReason ?? 'Claude unavailable'}, using Gemini`,
+      });
+    }
+    if (response.stop_reason === 'refusal') {
+      // A declined response isn't added to the history
+      deps.onLine({
+        kind: 'error',
+        text: 'Claude declined this request. Try rephrasing it, or start a new chat.',
+      });
+      return { conversation };
+    }
+
+    conversation = {
+      ...conversation,
+      geminiSignatures: { ...conversation.geminiSignatures, ...response.geminiSignatures },
+    };
+    if (response.content.length) {
+      // Append the whole turn unchanged, thinking blocks included
+      conversation = append(conversation, { role: 'assistant', content: response.content });
+    }
+
+    const text = response.content
+      .flatMap((b) => (b.type === 'text' ? [b.text] : []))
       .join('')
       .trim();
     if (text) {
       deps.onLine({ kind: 'model', text });
     }
 
-    const calls = modelContent.parts.flatMap((p) => (p.functionCall ? [p.functionCall] : []));
+    const calls = response.content.filter((b): b is ToolUseBlock => b.type === 'tool_use');
     if (!calls.length) {
-      return { contents };
+      return { conversation };
     }
 
     if (toolCallsUsed >= MAX_TOOL_CALLS_PER_MESSAGE) {
       // Answer the calls so the history stays valid, then stop.
-      const responses = calls.map((call) =>
-        functionResponse(call, { error: 'Tool call limit reached for this message.' }),
+      const results = calls.map((call) =>
+        toolResult(call, { error: 'Tool call limit reached for this message.' }),
       );
       deps.onLine({
         kind: 'error',
         text: `Stopped after ${MAX_TOOL_CALLS_PER_MESSAGE} tool calls. Try a more specific question.`,
       });
-      return { contents: [...contents, { role: 'user', parts: responses }] };
+      return { conversation: append(conversation, { role: 'user', content: results }) };
     }
 
     const result = await runCalls(deps, calls, [], toolCallsUsed);
     if (result.pending) {
-      return { contents, pending: result.pending };
+      return { conversation, pending: result.pending };
     }
     toolCallsUsed = result.toolCallsUsed;
-    contents = [...contents, { role: 'user', parts: result.responses }];
+    conversation = append(conversation, { role: 'user', content: result.results });
   }
 }
 
 /** Send a new user message and run the agent until it answers or needs confirmation. */
 export async function sendUserMessage(
   deps: AgentDeps,
-  contents: GeminiContent[],
+  conversation: Conversation,
   text: string,
 ): Promise<TurnResult> {
   deps.onLine({ kind: 'user', text });
-  const last = contents.at(-1);
-  // If the last turn ended on our side (an error or the tool limit), add to it
-  // rather than sending two user contents in a row.
-  const next: GeminiContent[] =
-    last?.role === 'user'
-      ? [...contents.slice(0, -1), { role: 'user', parts: [...last.parts, { text }] }]
-      : [...contents, { role: 'user', parts: [{ text }] }];
-  return continueTurn(deps, next, 0);
+  // Consecutive user messages are fine (Claude merges them), so after an
+  // error this just adds another one rather than editing the last.
+  return continueTurn(deps, append(conversation, { role: 'user', content: text }), 0);
 }
 
 /** Run (or cancel) a pending action, then let the model continue. */
 export async function resolvePendingAction(
   deps: AgentDeps,
-  contents: GeminiContent[],
+  conversation: Conversation,
   pending: PendingAction,
   confirmed: boolean,
 ): Promise<TurnResult> {
@@ -345,7 +337,7 @@ export async function resolvePendingAction(
   let result: ToolResult;
   if (confirmed) {
     deps.onLine({ kind: 'activity', text: `Confirmed: ${pending.summary}` });
-    result = await runTool(call.name, call.args ?? {}, deps.getState, deps.dispatch);
+    result = await runTool(call.name, inputArgs(call), deps.getState, deps.dispatch);
     if (typeof result.error === 'string') {
       deps.onLine({ kind: 'error', text: result.error });
     }
@@ -354,14 +346,14 @@ export async function resolvePendingAction(
     result = { cancelled: true };
   }
 
-  const responses = [...pending.responses, functionResponse(call, result)];
-  const rest = await runCalls(deps, pending.remainingCalls, responses, pending.toolCallsUsed);
+  const results = [...pending.results, toolResult(call, result)];
+  const rest = await runCalls(deps, pending.remainingCalls, results, pending.toolCallsUsed);
   if (rest.pending) {
-    return { contents, pending: rest.pending };
+    return { conversation, pending: rest.pending };
   }
   return continueTurn(
     deps,
-    [...contents, { role: 'user', parts: rest.responses }],
+    append(conversation, { role: 'user', content: rest.results }),
     rest.toolCallsUsed,
   );
 }

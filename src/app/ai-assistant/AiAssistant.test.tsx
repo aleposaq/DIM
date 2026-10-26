@@ -39,7 +39,7 @@ describe('AiAssistant', () => {
 
     act(() => toggleAiAssistant$.next());
     expect(screen.getByText('AI Assistant')).toBeTruthy();
-    expect(screen.getByText(/free Gemini tier/)).toBeTruthy();
+    expect(screen.getByText(/Uses Claude/)).toBeTruthy();
 
     act(() => toggleAiAssistant$.next());
     expect(screen.queryByText('AI Assistant')).toBeNull();

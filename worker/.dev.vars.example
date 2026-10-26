@@ -1,2 +1,4 @@
-# Copy to .dev.vars (gitignored) for `wrangler dev`. Never commit the real key.
-GEMINI_API_KEY=paste-your-key-here
+# Copy to .dev.vars (gitignored) for `wrangler dev`. Never commit real keys.
+ANTHROPIC_API_KEY=paste-your-anthropic-key-here
+GEMINI_API_KEY=paste-your-gemini-key-here
+PROXY_TOKEN=paste-a-long-random-string-here

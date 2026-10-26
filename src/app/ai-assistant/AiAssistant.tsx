@@ -9,7 +9,8 @@ import * as styles from './AiAssistant.m.scss';
 import {
   AgentDeps,
   ChatLine,
-  GeminiContent,
+  Conversation,
+  emptyConversation,
   PendingAction,
   resolvePendingAction,
   sendUserMessage,
@@ -17,8 +18,9 @@ import {
 } from './agent';
 import { toggleAiAssistant$ } from './events';
 
-/** localStorage key for the proxy Worker URL. */
+/** localStorage keys for the proxy Worker URL and its access token. */
 const PROXY_URL_KEY = 'dim-ai-proxy-url';
+const PROXY_TOKEN_KEY = 'dim-ai-proxy-token';
 
 const lineClassNames: Record<ChatLine['kind'], string> = {
   user: styles.user,
@@ -40,12 +42,13 @@ export default function AiAssistant() {
 
   // Keep the conversation while the panel is closed
   const [lines, setLines] = useState<ChatLine[]>([]);
-  const contents = useRef<GeminiContent[]>([]);
+  const conversation = useRef<Conversation>(emptyConversation);
   const [pending, setPending] = useState<PendingAction>();
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState('');
   const [proxyUrl, setProxyUrl] = useLocalStorage(PROXY_URL_KEY, $DIM_AI_PROXY_URL);
-  const [showSettings, setShowSettings] = useState(!proxyUrl);
+  const [proxyToken, setProxyToken] = useLocalStorage(PROXY_TOKEN_KEY, '');
+  const [showSettings, setShowSettings] = useState(!proxyUrl || !proxyToken);
 
   const dispatch = useThunkDispatch();
   const store = useStore<RootState>();
@@ -60,11 +63,12 @@ export default function AiAssistant() {
     try {
       const result = await step({
         proxyUrl,
+        proxyToken,
         getState: () => store.getState(),
         dispatch,
         onLine: (line) => setLines((l) => [...l, line]),
       });
-      contents.current = result.contents;
+      conversation.current = result.conversation;
       setPending(result.pending);
     } finally {
       setBusy(false);
@@ -77,13 +81,16 @@ export default function AiAssistant() {
     if (!text || busy || pending) {
       return;
     }
-    if (!proxyUrl) {
+    if (!proxyUrl || !proxyToken) {
       setShowSettings(true);
-      setLines((l) => [...l, { kind: 'error', text: 'Set the AI proxy Worker URL first.' }]);
+      setLines((l) => [
+        ...l,
+        { kind: 'error', text: 'Set the AI proxy Worker URL and access token first.' },
+      ]);
       return;
     }
     setInput('');
-    void run((deps) => sendUserMessage(deps, contents.current, text));
+    void run((deps) => sendUserMessage(deps, conversation.current, text));
   };
 
   const handleResolve = (confirmed: boolean) => {
@@ -92,11 +99,11 @@ export default function AiAssistant() {
     }
     const action = pending;
     setPending(undefined);
-    void run((deps) => resolvePendingAction(deps, contents.current, action, confirmed));
+    void run((deps) => resolvePendingAction(deps, conversation.current, action, confirmed));
   };
 
   const handleClear = () => {
-    contents.current = [];
+    conversation.current = emptyConversation;
     setLines([]);
     setPending(undefined);
   };
@@ -109,22 +116,35 @@ export default function AiAssistant() {
     <div className={styles.header}>
       <h1>AI Assistant</h1>
       <div className={styles.privacy}>
-        Uses Google's free Gemini tier: item names and stats are sent to Google and may be used to
-        improve its products. No account ids are sent.
+        Uses Claude (Anthropic). If Claude is unavailable it falls back to Google's free Gemini
+        tier, where prompts may be used to improve Google's products. Item names and stats are sent;
+        account ids are not.
       </div>
       {showSettings ? (
-        <label className={styles.settings}>
-          Worker URL
-          <input
-            type="url"
-            value={proxyUrl}
-            placeholder="https://dim-ai-proxy.<subdomain>.workers.dev"
-            onChange={(e) => setProxyUrl(e.target.value.trim())}
-          />
-          <button type="button" className={styles.button} onClick={() => setShowSettings(false)}>
-            Done
-          </button>
-        </label>
+        <>
+          <label className={styles.settings}>
+            Worker URL
+            <input
+              type="url"
+              value={proxyUrl}
+              placeholder="https://dim-ai-proxy.<subdomain>.workers.dev"
+              onChange={(e) => setProxyUrl(e.target.value.trim())}
+            />
+          </label>
+          <label className={styles.settings}>
+            Access token
+            <input
+              type="password"
+              value={proxyToken}
+              placeholder="The Worker's PROXY_TOKEN"
+              autoComplete="off"
+              onChange={(e) => setProxyToken(e.target.value.trim())}
+            />
+            <button type="button" className={styles.button} onClick={() => setShowSettings(false)}>
+              Done
+            </button>
+          </label>
+        </>
       ) : (
         <div className={styles.settings}>
           <button type="button" className={styles.button} onClick={() => setShowSettings(true)}>

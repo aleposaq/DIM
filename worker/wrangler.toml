@@ -6,11 +6,19 @@ workers_dev = true
 preview_urls = false
 
 [vars]
+# Main model. See https://platform.claude.com/docs/en/about-claude/models
+CLAUDE_MODEL = "claude-opus-5-5"
+# low | medium | high | xhigh | max. Higher is smarter but slower and costs more.
+CLAUDE_EFFORT = "medium"
+# Fallback when Claude is rate limited, overloaded, unreachable or has no key.
 # Free-tier model names change often. Check https://ai.google.dev/gemini-api/docs/pricing
 # and confirm function calling on the model's docs page before changing this.
-GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_MODEL = "gemini-3.5-flash-lite"
 # Comma-separated list of origins allowed to call this Worker.
 ALLOWED_ORIGINS = "https://localhost:8080"
 
-# GEMINI_API_KEY is a secret: `npx wrangler secret put GEMINI_API_KEY`.
-# For `wrangler dev`, put it in worker/.dev.vars (gitignored).
+# Secrets (set with `npx wrangler secret put <NAME>`, never commit them):
+#   ANTHROPIC_API_KEY  Claude API key
+#   GEMINI_API_KEY     Google AI Studio key, for the fallback
+#   PROXY_TOKEN        Shared access token the DIM panel sends
+# For `wrangler dev`, put them in worker/.dev.vars (gitignored).

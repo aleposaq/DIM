@@ -28,7 +28,7 @@ import { DestinyClass } from 'bungie-api-ts/destiny2';
 /** Max number of item summaries returned from a single search_items call. */
 export const MAX_SEARCH_RESULTS = 25;
 
-/** A JSON-schema-ish parameter description in the subset Gemini accepts. */
+/** A JSON-schema parameter description, kept to the subset both Claude and Gemini accept. */
 export interface ToolSchema {
   type: 'object' | 'string' | 'number' | 'integer' | 'boolean' | 'array';
   description?: string;
@@ -38,7 +38,7 @@ export interface ToolSchema {
   enum?: string[];
 }
 
-/** A Gemini functionDeclaration. */
+/** A tool declaration. agent.ts sends it to Claude as name, description and input_schema. */
 export interface FunctionDeclaration {
   name: string;
   description: string;
