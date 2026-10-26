@@ -13,7 +13,7 @@ type ToolUseBlock = Anthropic.Beta.BetaToolUseBlock;
 type ToolResultBlockParam = Anthropic.Beta.BetaToolResultBlockParam;
 
 /** Max tool calls the model may make while answering one user message. */
-export const MAX_TOOL_CALLS_PER_MESSAGE = 20;
+export const MAX_TOOL_CALLS_PER_MESSAGE = 40;
 
 /** Stay under the proxy Worker's 2 MB body cap. */
 const MAX_REQUEST_BYTES = 1.9 * 1024 * 1024;

@@ -9,7 +9,7 @@ preview_urls = false
 # Main model. See https://platform.claude.com/docs/en/about-claude/models
 CLAUDE_MODEL = "claude-opus-5-5"
 # low | medium | high | xhigh | max. Higher is smarter but slower and costs more.
-CLAUDE_EFFORT = "medium"
+CLAUDE_EFFORT = "high"
 # Fallback when Claude is rate limited, overloaded, unreachable or has no key.
 # Free-tier model names change often. Check https://ai.google.dev/gemini-api/docs/pricing
 # and confirm function calling on the model's docs page before changing this.

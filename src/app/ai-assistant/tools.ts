@@ -31,6 +31,12 @@ import {
   MAX_LOOKUP_RESULTS,
   subclassesFor,
 } from './game-knowledge';
+import {
+  armorModHashes,
+  ConfigError,
+  subclassLoadoutItem,
+  SubclassRequest,
+} from './loadout-config';
 
 /** Max number of item summaries returned from a single search_items call. */
 export const MAX_SEARCH_RESULTS = 25;
@@ -556,12 +562,31 @@ const applyLoadoutTool: AiTool = {
   },
 };
 
+function subclassArg(args: ToolArgs): SubclassRequest | undefined {
+  const value = args.subclass;
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new ToolError('Argument "subclass" must be an object');
+  }
+  const sub = value as ToolArgs;
+  return {
+    name: stringArg(sub, 'name', true),
+    abilities: stringArrayArg(sub, 'abilities'),
+    aspects: stringArrayArg(sub, 'aspects'),
+    fragments: stringArrayArg(sub, 'fragments'),
+  };
+}
+
 function buildNewLoadout(state: RootState, args: ToolArgs) {
   const name = stringArg(args, 'name', true);
   const notes = stringArg(args, 'notes');
   const fromCharacterId = stringArg(args, 'fromEquippedCharacterId');
   const itemIndices = stringArrayArg(args, 'itemIndices');
   const equipIndices = stringArrayArg(args, 'equipIndices');
+  const subclass = subclassArg(args);
+  const modNames = stringArrayArg(args, 'mods');
 
   let loadout: Loadout;
   if (fromCharacterId) {
@@ -573,8 +598,8 @@ function buildNewLoadout(state: RootState, args: ToolArgs) {
     if (classType === undefined) {
       throw new ToolError('classType is required unless fromEquippedCharacterId is set');
     }
-    if (!itemIndices.length && !equipIndices.length) {
-      throw new ToolError('List at least one item in itemIndices or equipIndices');
+    if (!itemIndices.length && !equipIndices.length && !subclass) {
+      throw new ToolError('List at least one item, or a subclass setup');
     }
     loadout = newLoadout(name, [], classType);
   }
@@ -590,10 +615,40 @@ function buildNewLoadout(state: RootState, args: ToolArgs) {
       loadout.items.push(convertToLoadoutItem(item, equipIndices.includes(item.index)));
     }
   }
+
+  let subclassChoices: string[] | undefined;
+  if (subclass || modNames.length) {
+    // Subclass options and mods depend on what this character has unlocked
+    const store = findCharacter(state, stringArg(args, 'characterId') ?? fromCharacterId);
+    if (!isClassCompatible(store.classType, loadout.classType)) {
+      throw new ToolError(
+        `A ${store.className} can't set up a ${classNames[loadout.classType]} loadout`,
+      );
+    }
+    try {
+      if (subclass) {
+        const { item, loadoutItem, chosen } = subclassLoadoutItem(state, store, subclass);
+        // Replace any subclass that came from the equipped gear
+        loadout.items = loadout.items.filter(
+          (li) => !store.items.some((i) => i.id === li.id && i.bucket.hash === item.bucket.hash),
+        );
+        loadout.items.push(loadoutItem);
+        subclassChoices = [item.name, ...chosen];
+      }
+      if (modNames.length) {
+        loadout.parameters = {
+          ...loadout.parameters,
+          mods: armorModHashes(state, store, modNames),
+        };
+      }
+    } catch (e) {
+      throw e instanceof ConfigError ? new ToolError(e.message) : e;
+    }
+  }
   if (notes) {
     loadout.notes = notes;
   }
-  return { loadout, items };
+  return { loadout, items, subclassChoices, modCount: modNames.length };
 }
 
 const createLoadout: AiTool = {
@@ -601,7 +656,7 @@ const createLoadout: AiTool = {
   declaration: {
     name: 'create_loadout',
     description:
-      'Save a new DIM loadout. To save what a character is wearing (including subclass and mods), set fromEquippedCharacterId.',
+      'Save a new DIM loadout: items, and optionally a full subclass setup (super, abilities, aspects, fragments) and armor mods. DIM applies all of it when the loadout is equipped. To save what a character is wearing, set fromEquippedCharacterId.',
     parameters: {
       type: 'object',
       properties: {
@@ -621,7 +676,33 @@ const createLoadout: AiTool = {
           items: { type: 'string' },
           description: 'Item indexes to include and equip',
         },
-        notes: { type: 'string', description: 'Optional loadout notes' },
+        subclass: {
+          type: 'object',
+          description: 'Subclass setup, using exact names from describe_subclass',
+          properties: {
+            name: { type: 'string', description: 'Subclass name, e.g. "Striker" or "Prismatic"' },
+            abilities: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Super, grenade, melee, class ability and jump, by name',
+            },
+            aspects: { type: 'array', items: { type: 'string' } },
+            fragments: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['name'],
+        },
+        mods: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Armor mod names. Repeat a name to use it more than once. DIM assigns them to armor pieces.',
+        },
+        characterId: {
+          type: 'string',
+          description:
+            'Character whose unlocked subclass options and mods to use. Defaults to fromEquippedCharacterId, then the current character.',
+        },
+        notes: { type: 'string', description: 'Optional loadout notes, e.g. how to play it' },
         fromEquippedCharacterId: {
           type: 'string',
           description: "Start from this character's equipped gear, subclass and mods",
@@ -631,21 +712,29 @@ const createLoadout: AiTool = {
     },
   },
   summarize: (args, state) => {
-    const { loadout, items } = buildNewLoadout(state, args);
+    const { loadout, items, subclassChoices, modCount } = buildNewLoadout(state, args);
     const fromCharacterId = stringArg(args, 'fromEquippedCharacterId');
-    const source = fromCharacterId
-      ? `what ${findCharacter(state, fromCharacterId).className} is wearing`
-      : `${loadout.items.length} items`;
-    const extra = fromCharacterId && items.length ? ` plus ${items.length} more items` : '';
+    const parts = [
+      fromCharacterId
+        ? `what ${findCharacter(state, fromCharacterId).className} is wearing`
+        : `${items.length} items`,
+      fromCharacterId && items.length ? `${items.length} more items` : undefined,
+      subclassChoices
+        ? `${subclassChoices[0]} (${subclassChoices.slice(1).join(', ')})`
+        : undefined,
+      modCount ? `${modCount} armor mods` : undefined,
+    ].filter(Boolean);
     return {
-      summary: `Save ${source}${extra} as ${classNames[loadout.classType]} loadout "${loadout.name}"`,
+      summary: `Save ${parts.join(', ')} as ${classNames[loadout.classType]} loadout "${loadout.name}"`,
     };
   },
   execute: async (args, getState, dispatch) => {
-    const { loadout } = buildNewLoadout(getState(), args);
+    const { loadout, subclassChoices, modCount } = buildNewLoadout(getState(), args);
     dispatch(updateLoadout(loadout));
     return {
-      result: `Saved loadout "${loadout.name}" with ${loadout.items.length} items`,
+      result: `Saved loadout "${loadout.name}" with ${loadout.items.length} items${
+        subclassChoices ? `, ${subclassChoices.join(', ')}` : ''
+      }${modCount ? `, ${modCount} mods` : ''}`,
       loadoutId: loadout.id,
     };
   },

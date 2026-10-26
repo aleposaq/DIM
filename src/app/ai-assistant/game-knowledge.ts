@@ -211,18 +211,20 @@ function plugSummary(socket: DimSocket, descriptions: ClarityDescription | undef
   };
 }
 
-/** Names of the unlocked plugs that fit these sockets, without duplicates. */
+/** The unlocked plugs that fit these sockets, with descriptions, without duplicates. */
 function availableOptions(sockets: DimSocket[], unlocked: Set<number>) {
-  const names = new Set<string>();
+  const options = new Map<string, string | undefined>();
   for (const socket of sockets) {
     for (const plug of socket.plugSet?.plugs ?? []) {
-      const name = plug.plugDef.displayProperties.name;
+      const { name, description } = plug.plugDef.displayProperties;
       if (name && unlocked.has(plug.plugDef.hash)) {
-        names.add(name);
+        options.set(name, description || undefined);
       }
     }
   }
-  return [...names].sort();
+  return [...options.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, description]) => ({ name, description }));
 }
 
 /** The character's stats, by name. */

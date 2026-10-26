@@ -180,7 +180,7 @@ describe('describeSubclass', () => {
       fragments: [{ name: 'Spark of Shock', description: 'Spark of Shock does things' }],
       fragmentSlots: 1,
       // Spark of Ions isn't unlocked
-      availableFragments: ['Spark of Shock'],
+      availableFragments: [{ name: 'Spark of Shock', description: 'Spark of Shock does things' }],
       characterStats: { Melee: 120 },
     });
   });
