@@ -24,6 +24,13 @@ import { filterFactorySelector, validateQuerySelector } from 'app/search/items/i
 import { DimThunkDispatch, RootState } from 'app/store/types';
 import { isClassCompatible } from 'app/utils/item-utils';
 import { DestinyClass } from 'bungie-api-ts/destiny2';
+import {
+  describeArtifact,
+  describeSubclass,
+  lookupGameData,
+  MAX_LOOKUP_RESULTS,
+  subclassesFor,
+} from './game-knowledge';
 
 /** Max number of item summaries returned from a single search_items call. */
 export const MAX_SEARCH_RESULTS = 25;
@@ -672,11 +679,97 @@ const equipMaxPower: AiTool = {
   },
 };
 
+const lookupGameDataTool: AiTool = {
+  mutating: false,
+  declaration: {
+    name: 'lookup_game_data',
+    description: `Look up current game data by name: exotic armor and weapons (with their exotic perks), weapon perks, mods, aspects, fragments, supers and abilities. Returns Bungie's description plus community-tested numbers from Clarity when available. Use this before stating what anything does. At most ${MAX_LOOKUP_RESULTS} results.`,
+    parameters: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'All or part of the name, e.g. "Cuirass" or "Ionic Sentry"',
+        },
+      },
+      required: ['name'],
+    },
+  },
+  execute: async (args, getState) => lookupGameData(getState(), stringArg(args, 'name', true)),
+};
+
+const describeSubclassTool: AiTool = {
+  mutating: false,
+  declaration: {
+    name: 'describe_subclass',
+    description:
+      "Show a character's subclass setup: super, abilities, aspects and fragments (with descriptions and community numbers), the unlocked options for each slot, and the character's stats. Also lists the character's other subclasses.",
+    parameters: {
+      type: 'object',
+      properties: {
+        characterId: {
+          type: 'string',
+          description: 'A character id from list_characters. Defaults to the current character.',
+        },
+        subclass: {
+          type: 'string',
+          description:
+            'Part of a subclass name, e.g. "Striker" or "Prismatic". Defaults to the equipped subclass.',
+        },
+      },
+    },
+  },
+  execute: async (args, getState) => {
+    const state = getState();
+    const store = findCharacter(state, stringArg(args, 'characterId'));
+    const subclasses = subclassesFor(store);
+    const query = stringArg(args, 'subclass')?.toLowerCase();
+    const subclass = query
+      ? subclasses.find((s) => s.name.toLowerCase().includes(query))
+      : subclasses[0];
+    if (!subclass) {
+      return {
+        error: query ? `No subclass matching "${query}"` : 'No subclass found',
+        subclasses: subclasses.map((s) => s.name),
+      };
+    }
+    return {
+      ...describeSubclass(state, store, subclass),
+      otherSubclasses: subclasses.filter((s) => s !== subclass).map((s) => s.name),
+    };
+  },
+};
+
+const describeArtifactTool: AiTool = {
+  mutating: false,
+  declaration: {
+    name: 'describe_artifact',
+    description:
+      'Show the seasonal artifact perks a character has active, with descriptions. These change each season and can matter a lot for builds.',
+    parameters: {
+      type: 'object',
+      properties: {
+        characterId: {
+          type: 'string',
+          description: 'A character id from list_characters. Defaults to the current character.',
+        },
+      },
+    },
+  },
+  execute: async (args, getState) => {
+    const state = getState();
+    return describeArtifact(state, findCharacter(state, stringArg(args, 'characterId')));
+  },
+};
+
 export const aiTools: AiTool[] = [
   listCharacters,
   searchItemsTool,
   describeItem,
   listLoadouts,
+  lookupGameDataTool,
+  describeSubclassTool,
+  describeArtifactTool,
   moveItem,
   equipItems,
   applyLoadoutTool,

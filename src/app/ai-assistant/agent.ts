@@ -3,6 +3,7 @@ import { allItemsSelector } from 'app/inventory/selectors';
 import { DimThunkDispatch, RootState } from 'app/store/types';
 import { errorMessage } from 'app/utils/errors';
 import memoizeOne from 'memoize-one';
+import { buildCraftingGuide } from './build-guide';
 import { searchCheatSheet } from './search-cheat-sheet';
 import { aiTools, aiToolsByName, runTool, summarizeTool, ToolArgs, ToolResult } from './tools';
 
@@ -86,6 +87,8 @@ const systemPrompt = memoizeOne(() =>
     'Item indexes come from search_items. Character ids come from list_characters. Loadout ids come from list_loadouts.',
     'Tools that move, equip, apply or save ask the player to confirm first. If a result says cancelled, acknowledge it and do not retry.',
     'Keep answers short. Refer to items by name, never by index.',
+    '',
+    buildCraftingGuide,
     '',
     searchCheatSheet(),
   ].join('\n'),
@@ -173,6 +176,12 @@ function activityLine(call: ToolUseBlock, state: RootState) {
     }
     case 'list_characters':
       return 'Listed characters';
+    case 'lookup_game_data':
+      return `Looked up: ${str(args.name)}`;
+    case 'describe_subclass':
+      return args.subclass ? `Checked ${str(args.subclass)} subclass` : 'Checked subclass';
+    case 'describe_artifact':
+      return 'Checked artifact perks';
     case 'list_loadouts':
       return args.classType ? `Listed ${str(args.classType)} loadouts` : 'Listed loadouts';
     default:
