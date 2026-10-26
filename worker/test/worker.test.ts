@@ -110,6 +110,11 @@ describe('access control', () => {
     assert.equal(calls.length, 0);
   });
 
+  it('ignores whitespace around the stored token', async () => {
+    const res = await worker.fetch(chatRequest(), makeEnv({ PROXY_TOKEN: `${TOKEN}\r\n` }));
+    assert.equal(res.status, 200);
+  });
+
   it('fails closed when PROXY_TOKEN is not set', async () => {
     const res = await worker.fetch(chatRequest(), makeEnv({ PROXY_TOKEN: undefined }));
     assert.equal(res.status, 500);

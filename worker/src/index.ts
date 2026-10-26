@@ -96,11 +96,16 @@ export default {
       return errorResponse(405, 'Method not allowed', { ...cors, Allow: 'POST, OPTIONS' });
     }
 
-    if (!env.PROXY_TOKEN) {
+    // Ignore surrounding whitespace: piping a secret into `wrangler secret put`
+    // from Windows PowerShell stores a trailing line break with it
+    const proxyToken = env.PROXY_TOKEN?.trim();
+    if (!proxyToken) {
       return errorResponse(500, 'PROXY_TOKEN is not configured on the Worker', cors);
     }
-    const auth = request.headers.get('Authorization') ?? '';
-    if (!tokensMatch(auth, `Bearer ${env.PROXY_TOKEN}`)) {
+    const sentToken = (request.headers.get('Authorization') ?? '')
+      .replace(/^Bearer\s+/i, '')
+      .trim();
+    if (!tokensMatch(sentToken, proxyToken)) {
       return errorResponse(401, 'Missing or wrong access token', cors);
     }
 
