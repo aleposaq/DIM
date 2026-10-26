@@ -3,6 +3,12 @@ import { type FeatureFlags } from './feature-flags.ts';
 
 const SELF = "'self'";
 
+/** The exact origin of the AI assistant proxy Worker, from the DIM_AI_PROXY_URL env var. */
+function aiProxyOrigin() {
+  const url = process.env.DIM_AI_PROXY_URL;
+  return url ? new URL(url).origin : false;
+}
+
 /**
  * Generate a Content Security Policy directive for a particular DIM environment (beta, release)
  */
@@ -50,6 +56,10 @@ export default function csp(
       featureFlags.elgatoStreamDeck && 'http://localhost:9120',
       // Game2Give
       featureFlags.issueBanner && 'https://bungiefoundation.donordrive.com',
+      // AI assistant proxy Worker (set DIM_AI_PROXY_URL when building)
+      featureFlags.aiAssistant && aiProxyOrigin(),
+      // Local `wrangler dev` for the AI assistant proxy
+      featureFlags.aiAssistant && env === 'dev' && 'http://localhost:8787',
     ].filter((s) => s !== false),
     imgSrc: [
       SELF,

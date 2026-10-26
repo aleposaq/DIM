@@ -24,3 +24,7 @@ eslint.results.json
 /sonda-report.html
 sonda-report/
 .claude/
+# AI assistant worker
+worker/.dev.vars
+worker/node_modules/
+worker/.wrangler/

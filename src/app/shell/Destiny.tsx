@@ -6,6 +6,7 @@ import {
   accountsSelector,
   currentAccountSelector,
 } from 'app/accounts/selectors';
+import AiAssistant from 'app/ai-assistant/AiAssistant';
 import ArmoryPage from 'app/armory/ArmoryPage';
 import CompareContainer from 'app/compare/CompareContainer';
 import { settingSelector } from 'app/dim-api/selectors';
@@ -331,6 +332,7 @@ export default function Destiny() {
         <CompareContainer destinyVersion={account.destinyVersion} />
         {account.destinyVersion === 2 && <StripSockets />}
         <Farming />
+        {$featureFlags.aiAssistant && account.destinyVersion === 2 && <AiAssistant />}
         <InfusionFinder />
         <ItemPopupContainer boundarySelector=".store-header" />
         <GlobalEffects />

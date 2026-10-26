@@ -1,0 +1,113 @@
+@use '../variables' as *;
+
+.sheet {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  h1 {
+    margin: 0;
+  }
+}
+
+.privacy {
+  font-size: 11px;
+  color: var(--theme-text-secondary);
+}
+
+.settings {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+
+  input {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  min-height: 200px;
+}
+
+.empty {
+  color: var(--theme-text-secondary);
+  font-size: 13px;
+}
+
+.message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 6px 10px;
+  border-radius: 6px;
+  max-width: 85%;
+  line-height: 1.4;
+}
+
+.user {
+  composes: message;
+  align-self: flex-end;
+  background-color: var(--theme-button-bg-primary);
+}
+
+.model {
+  composes: message;
+  align-self: flex-start;
+  background-color: rgb(255, 255, 255, 0.08);
+}
+
+.activity {
+  font-size: 12px;
+  color: var(--theme-text-secondary);
+  font-style: italic;
+}
+
+.error {
+  font-size: 13px;
+  color: $red;
+}
+
+.pending {
+  border: 1px solid var(--theme-accent-primary);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pendingButtons {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+}
+
+.button {
+  composes: dim-button from global;
+}
+
+.primaryButton {
+  composes: dim-button dim-button-primary from global;
+}
+
+.form {
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+
+  input {
+    flex: 1;
+    min-width: 0;
+  }
+}

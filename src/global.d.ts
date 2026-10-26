@@ -6,6 +6,7 @@ declare const $DIM_WEB_API_KEY: string;
 declare const $DIM_WEB_CLIENT_ID: string;
 declare const $DIM_WEB_CLIENT_SECRET: string;
 declare const $DIM_API_KEY: string;
+declare const $DIM_AI_PROXY_URL: string;
 declare const $BROWSERS: string[];
 declare const $ANALYTICS_PROPERTY: string;
 declare const $PUBLIC_PATH: string;

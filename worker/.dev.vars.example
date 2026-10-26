@@ -1,0 +1,2 @@
+# Copy to .dev.vars (gitignored) for `wrangler dev`. Never commit the real key.
+GEMINI_API_KEY=paste-your-key-here

@@ -55,6 +55,8 @@ export function makeFeatureFlags(env: {
     editInGameLoadoutIdentifiers: false,
     // Whether to sync DIM API data instead of loading everything
     dimApiSync: true,
+    // AI assistant chat panel (talks to a Gemini proxy Worker, see worker/)
+    aiAssistant: env.dev,
   };
 }
 

@@ -1,0 +1,13 @@
+name = "dim-ai-proxy"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+[vars]
+# Free-tier model names change often. Check https://ai.google.dev/gemini-api/docs/pricing
+# and confirm function calling on the model's docs page before changing this.
+GEMINI_MODEL = "gemini-3.8-flash"
+# Comma-separated list of origins allowed to call this Worker.
+ALLOWED_ORIGINS = "https://localhost:8080"
+
+# GEMINI_API_KEY is a secret: `npx wrangler secret put GEMINI_API_KEY`.
+# For `wrangler dev`, put it in worker/.dev.vars (gitignored).

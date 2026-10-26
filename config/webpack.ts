@@ -550,6 +550,8 @@ export default (env: Env) => {
       $DIM_WEB_CLIENT_ID: JSON.stringify(process.env.WEB_OAUTH_CLIENT_ID),
       $DIM_WEB_CLIENT_SECRET: JSON.stringify(process.env.WEB_OAUTH_CLIENT_SECRET),
       $DIM_API_KEY: JSON.stringify(process.env.DIM_API_KEY),
+      // URL of the AI assistant proxy Worker, e.g. https://dim-ai-proxy.<subdomain>.workers.dev
+      $DIM_AI_PROXY_URL: JSON.stringify(process.env.DIM_AI_PROXY_URL ?? ''),
       $ANALYTICS_PROPERTY: JSON.stringify(analyticsProperty),
       $PUBLIC_PATH: JSON.stringify(publicPath),
 

@@ -1,5 +1,6 @@
 import MenuAccounts from 'app/accounts/MenuAccounts';
 import { currentAccountSelector } from 'app/accounts/selectors';
+import { toggleAiAssistant$ } from 'app/ai-assistant/events';
 import { PressTipRoot } from 'app/dim-ui/PressTip';
 import Sheet from 'app/dim-ui/Sheet';
 import { showCheatSheet$ } from 'app/hotkeys/HotkeysCheatSheet';
@@ -34,7 +35,7 @@ import PostmasterWarningBanner from './PostmasterWarningBanner';
 import RefreshButton from './RefreshButton';
 import { setSearchQuery } from './actions';
 import { installPrompt$ } from './app-install';
-import { AppIcon, faExternalLinkAlt, menuIcon, searchIcon, settingsIcon } from './icons';
+import { AppIcon, boltIcon, faExternalLinkAlt, menuIcon, searchIcon, settingsIcon } from './icons';
 import { userGuideLink } from './links';
 import { useIsPhonePortrait } from './selectors';
 
@@ -368,6 +369,16 @@ export default function Header() {
               </span>
             )}
             {streamDeckEnabled && <StreamDeckButton />}
+            {$featureFlags.aiAssistant && account?.destinyVersion === 2 && (
+              <button
+                type="button"
+                className={styles.menuItem}
+                title="AI Assistant (Shift+A)"
+                onClick={() => toggleAiAssistant$.next()}
+              >
+                <AppIcon icon={boltIcon} />
+              </button>
+            )}
             <RefreshButton className={styles.menuItem} />
             {!isPhonePortrait && (
               <Link className={styles.menuItem} to="/settings" title={t('Settings.Settings')}>
